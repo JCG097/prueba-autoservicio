@@ -7,6 +7,8 @@ const {
   listarEspacios,
   resumen,
   reporteIngresos,
+  bloquearEspacio,
+  desbloquearEspacio,
 } = require('../../app/src/parking');
 
 // Fecha fija para que las pruebas de cobro sean repetibles.
@@ -146,6 +148,52 @@ describe('listarEspacios y resumen', () => {
       carro: { total: 12, ocupados: 1, libres: 11 },
       moto: { total: 6, ocupados: 0, libres: 6 },
     });
+  });
+});
+
+describe('bloquearEspacio', () => {
+  test('bloquea un espacio libre y queda en estado "mantenimiento"', () => {
+    const parq = crearParqueadero();
+    const espacio = bloquearEspacio(parq, 'C-03');
+    expect(espacio).toMatchObject({ codigo: 'C-03', estado: 'mantenimiento' });
+  });
+
+  test('un espacio en mantenimiento no se asigna en un nuevo ingreso', () => {
+    const parq = crearParqueadero();
+    registrarIngreso(parq, { placa: 'AAA111', tipo: 'carro' }, INGRESO);
+    registrarIngreso(parq, { placa: 'BBB222', tipo: 'carro' }, INGRESO);
+    bloquearEspacio(parq, 'C-03');
+
+    const espacio = registrarIngreso(parq, { placa: 'CCC333', tipo: 'carro' }, INGRESO);
+
+    expect(espacio.codigo).toBe('C-04');
+  });
+
+  test('rechaza bloquear un espacio ocupado', () => {
+    const parq = crearParqueadero();
+    registrarIngreso(parq, { placa: 'ABC123', tipo: 'carro' }, INGRESO);
+    expect(() => bloquearEspacio(parq, 'C-01')).toThrow('El espacio C-01 está ocupado.');
+  });
+
+  test('rechaza bloquear un espacio que no existe', () => {
+    const parq = crearParqueadero();
+    expect(() => bloquearEspacio(parq, 'C-99')).toThrow('El espacio C-99 no existe.');
+  });
+});
+
+describe('desbloquearEspacio', () => {
+  test('desbloquea un espacio en mantenimiento y vuelve a estado "libre"', () => {
+    const parq = crearParqueadero();
+    bloquearEspacio(parq, 'C-03');
+
+    const espacio = desbloquearEspacio(parq, 'C-03');
+
+    expect(espacio).toMatchObject({ codigo: 'C-03', estado: 'libre' });
+  });
+
+  test('rechaza desbloquear un espacio que no existe', () => {
+    const parq = crearParqueadero();
+    expect(() => desbloquearEspacio(parq, 'C-99')).toThrow('El espacio C-99 no existe.');
   });
 });
 
