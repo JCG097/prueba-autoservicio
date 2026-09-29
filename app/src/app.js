@@ -10,6 +10,8 @@ const {
   listarEspacios,
   resumen,
   reporteIngresos,
+  bloquearEspacio,
+  desbloquearEspacio,
 } = require('./parking');
 
 function crearApp(opciones) {
@@ -45,6 +47,14 @@ function crearApp(opciones) {
 
   app.post('/api/salidas', (req, res) => {
     res.json(registrarSalida(parqueadero, req.body));
+  });
+
+  app.post('/api/espacios/:codigo/bloqueo', (req, res) => {
+    res.json(bloquearEspacio(parqueadero, req.params.codigo));
+  });
+
+  app.delete('/api/espacios/:codigo/bloqueo', (req, res) => {
+    res.json(desbloquearEspacio(parqueadero, req.params.codigo));
   });
 
   // Manejo central de errores: responde siempre JSON con un mensaje claro.

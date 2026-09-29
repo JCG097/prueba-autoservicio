@@ -160,9 +160,10 @@
           div.className = 'espacio' + (e.codigo === recien ? ' recien' : '');
           div.dataset.testid = `espacio-${e.codigo}`;
           div.dataset.estado = e.estado;
+          const texto = e.placa ? null : e.estado === 'mantenimiento' ? 'Mantenimiento' : 'Libre';
           div.innerHTML = e.placa
             ? `<span class="placa">${e.placa}</span>`
-            : '<span class="libre-texto">Libre</span>';
+            : `<span class="libre-texto">${texto}</span>`;
           div.insertAdjacentHTML('beforeend', `<span class="codigo">${e.codigo}</span>`);
           zona.appendChild(div);
         }

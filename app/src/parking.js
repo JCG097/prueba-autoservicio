@@ -20,10 +20,10 @@ class ErrorNegocio extends Error {
 function crearParqueadero({ carros = 12, motos = 6 } = {}) {
   const espacios = [];
   for (let i = 1; i <= carros; i++) {
-    espacios.push({ codigo: `C-${String(i).padStart(2, '0')}`, tipo: 'carro', placa: null, ingreso: null });
+    espacios.push({ codigo: `C-${String(i).padStart(2, '0')}`, tipo: 'carro', placa: null, ingreso: null, bloqueado: false });
   }
   for (let i = 1; i <= motos; i++) {
-    espacios.push({ codigo: `M-${String(i).padStart(2, '0')}`, tipo: 'moto', placa: null, ingreso: null });
+    espacios.push({ codigo: `M-${String(i).padStart(2, '0')}`, tipo: 'moto', placa: null, ingreso: null, bloqueado: false });
   }
   return { espacios, recibos: [] };
 }
@@ -33,13 +33,42 @@ function normalizarPlaca(placa) {
 }
 
 function verEspacio(espacio) {
+  let estado = 'libre';
+  if (espacio.placa) {
+    estado = 'ocupado';
+  } else if (espacio.bloqueado) {
+    estado = 'mantenimiento';
+  }
   return {
     codigo: espacio.codigo,
     tipo: espacio.tipo,
-    estado: espacio.placa ? 'ocupado' : 'libre',
+    estado,
     placa: espacio.placa,
     ingreso: espacio.ingreso,
   };
+}
+
+function buscarEspacio(parqueadero, codigo) {
+  const espacio = parqueadero.espacios.find((e) => e.codigo === codigo);
+  if (!espacio) {
+    throw new ErrorNegocio(`El espacio ${codigo} no existe.`, 404);
+  }
+  return espacio;
+}
+
+function bloquearEspacio(parqueadero, codigo) {
+  const espacio = buscarEspacio(parqueadero, codigo);
+  if (espacio.placa) {
+    throw new ErrorNegocio(`El espacio ${codigo} está ocupado.`, 409);
+  }
+  espacio.bloqueado = true;
+  return verEspacio(espacio);
+}
+
+function desbloquearEspacio(parqueadero, codigo) {
+  const espacio = buscarEspacio(parqueadero, codigo);
+  espacio.bloqueado = false;
+  return verEspacio(espacio);
 }
 
 function registrarIngreso(parqueadero, { placa, tipo } = {}, ahora = new Date()) {
@@ -54,7 +83,7 @@ function registrarIngreso(parqueadero, { placa, tipo } = {}, ahora = new Date())
   if (parqueadero.espacios.some((e) => e.placa === p)) {
     throw new ErrorNegocio(`El vehículo ${p} ya está dentro del parqueadero.`, 409);
   }
-  const libre = parqueadero.espacios.find((e) => e.tipo === tipo && !e.placa);
+  const libre = parqueadero.espacios.find((e) => e.tipo === tipo && !e.placa && !e.bloqueado);
   if (!libre) {
     throw new ErrorNegocio(`No hay espacios libres para ${tipo}.`, 409);
   }
@@ -150,4 +179,6 @@ module.exports = {
   listarEspacios,
   resumen,
   reporteIngresos,
+  bloquearEspacio,
+  desbloquearEspacio,
 };
