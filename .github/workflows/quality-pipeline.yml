@@ -1,0 +1,278 @@
+name: Quality Pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Si llega un push nuevo al mismo PR, cancela la ejecución anterior.
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # La imagen se etiqueta con el SHA del commit del PR (o de main) para trazabilidad.
+  COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  # ---------- CI: primera barrera ----------
+  tdd-check:
+    name: TDD verificado
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Verificar que los cambios de código incluyan pruebas
+        run: node scripts/check-tdd.js
+        env:
+          BASE_REF: ${{ github.base_ref }}
+
+  acceptance-integrity:
+    name: Integridad de pruebas de aceptación
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Verificar que solo QA modificó las pruebas de aceptación y E2E
+        run: node scripts/check-acceptance-integrity.js
+        env:
+          BASE_REF: ${{ github.base_ref }}
+
+  # ---------- CI: calidad y seguridad del código ----------
+  secrets-scan:
+    name: Secretos en el código (Gitleaks)
+    needs: [tdd-check, acceptance-integrity]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  static-analysis:
+    name: Análisis estático (ESLint)
+    needs: [tdd-check, acceptance-integrity]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  unit-tests:
+    name: Pruebas unitarias y cobertura (Jest)
+    needs: static-analysis
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:coverage
+      - name: Publicar reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage/
+
+  security:
+    name: Seguridad de dependencias (OSV-Scanner)
+    needs: static-analysis
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.3.8
+    with:
+      scan-args: |-
+        --lockfile=./package-lock.json
+
+  sonarqube:
+    name: Calidad de código (SonarQube Cloud)
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:coverage
+      - name: Análisis y Quality Gate de SonarQube
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          # El Quality Gate bloquea en los PRs; en main solo se actualiza la línea base.
+          args: -Dsonar.qualitygate.wait=${{ github.event_name == 'pull_request' }}
+  # ---------- Build: la imagen se construye una sola vez ----------
+  build:
+    name: Build, escaneo y registro de imagen
+    needs: [sonarqube, security, secrets-scan]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Definir nombre y etiqueta de la imagen
+        id: meta
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${COMMIT_SHA}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Construir la imagen
+        run: docker build -t "$IMAGE" --label "org.opencontainers.image.revision=$COMMIT_SHA" .
+
+      - name: Escanear la imagen (Trivy)
+        run: |
+          mkdir -p reports
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/reports:/reports" \
+            aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed \
+            --format table --output /reports/trivy-imagen.txt "$IMAGE"
+          cat reports/trivy-imagen.txt
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 --quiet "$IMAGE"
+
+      - name: Generar SBOM (CycloneDX)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/reports:/reports" \
+            aquasec/trivy:latest image --format cyclonedx --output /reports/sbom.cdx.json "$IMAGE"
+
+      - name: Publicar reportes de la imagen
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: imagen-reportes
+          path: reports/
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar la imagen en GitHub Container Registry
+        run: |
+          docker push "$IMAGE"
+          {
+            echo "### Artefacto construido"
+            echo "- Imagen: \`$IMAGE\`"
+            echo "- Commit: \`$COMMIT_SHA\`"
+            echo "- Reportes: escaneo de vulnerabilidades y SBOM en el artefacto \`imagen-reportes\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------- CD: la misma imagen se promueve a DEV y luego a QA ----------
+  deploy-dev:
+    name: DEV - Despliegue y smoke
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: dev
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Desplegar la imagen en el ambiente efímero de DEV
+        run: |
+          docker run -d --name app-dev -p 3000:3000 "$IMAGE"
+          for i in $(seq 1 30); do curl -fs http://localhost:3000/health && break; sleep 1; done
+
+      - name: Smoke test
+        run: |
+          curl -fsS http://localhost:3000/health
+          curl -fsS http://localhost:3000/ | grep -q "Parqueadero Central"
+          curl -fsS http://localhost:3000/api/resumen
+          echo "### DEV: smoke aprobado con \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Destruir el ambiente de DEV
+        if: always()
+        run: |
+          docker logs app-dev || true
+          docker rm -f app-dev || true
+
+  deploy-qa:
+    name: QA - Despliegue y pruebas E2E
+    needs: [build, deploy-dev]
+    runs-on: ubuntu-24.04
+    environment: qa
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Desplegar la misma imagen en el ambiente efímero de QA
+        run: |
+          docker run -d --name app-qa -p 3000:3000 "$IMAGE"
+          for i in $(seq 1 30); do curl -fs http://localhost:3000/health && break; sleep 1; done
+
+      - name: Instalar el navegador de Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Pruebas E2E de aceptación
+        run: npm run test:e2e
+        env:
+          BASE_URL: http://localhost:3000
+
+      - name: Publicar el reporte de Playwright
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+      - name: Resumen de QA
+        if: success()
+        run: |
+          echo "### QA: pruebas E2E aprobadas con \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Destruir el ambiente de QA
+        if: always()
+        run: |
+          docker logs app-qa || true
+          docker rm -f app-qa || true

@@ -1,0 +1,26 @@
+name: Historia de usuario
+description: Una historia que la IA desarrollará con TDD y el pipeline validará con los quality gates.
+labels: ["claude-dev"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Al crear este Issue, la etiqueta `claude-dev` inicia el flujo: la IA QA escribe las pruebas desde los criterios, la IA Desarrollo implementa y abre el PR, y el pipeline lo valida.
+  - type: textarea
+    id: historia
+    attributes:
+      label: Historia
+      description: Quién necesita qué y para qué.
+      placeholder: Como administrador del parqueadero quiero ... para ...
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: Criterios de aceptación
+      description: Uno por línea, con valores concretos. Cada criterio se convierte en al menos una prueba.
+      placeholder: |
+        - Dado ..., cuando ..., entonces ...
+        - Dado ..., cuando ..., entonces ...
+    validations:
+      required: true

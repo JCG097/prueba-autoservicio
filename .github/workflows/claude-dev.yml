@@ -1,0 +1,108 @@
+name: Claude Dev
+
+# Una historia de usuario (Issue) con la etiqueta claude-dev dispara dos procesos separados:
+# 1. QA: crea las pruebas de aceptación desde los criterios.
+# 2. Desarrollo: implementa el código con TDD para que esas pruebas pasen, y abre el PR.
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  qa-tests:
+    name: QA - Pruebas de aceptación
+    if: github.event.label.name == 'claude-dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Claude QA crea las pruebas de aceptación
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            ROL: QA. Sigue la sección "Rol QA" de CLAUDE.md.
+
+            Crea las pruebas de aceptación automatizadas del Issue #${{ github.event.issue.number }} del repositorio ${{ github.repository }}.
+            Deriva el comportamiento esperado únicamente de estos criterios, no del código existente.
+
+            TÍTULO: ${{ github.event.issue.title }}
+
+            HISTORIA Y CRITERIOS DE ACEPTACIÓN:
+            ${{ github.event.issue.body }}
+
+            Pasos:
+            1. git checkout -b claude/issue-${{ github.event.issue.number }}
+            2. Escribe tests/acceptance/issue-${{ github.event.issue.number }}.test.js con al menos una prueba por criterio. Si algún criterio involucra la interfaz, escribe también tests/e2e/issue-${{ github.event.issue.number }}.spec.js con Playwright.
+            3. Ejecuta npx jest tests/acceptance y confirma que las pruebas nuevas fallan porque la funcionalidad no existe.
+            4. Ejecuta npm run lint.
+            5. Commit: qa(#${{ github.event.issue.number }}): pruebas de aceptación
+            6. git push -u origin claude/issue-${{ github.event.issue.number }}
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 25
+            --allowedTools "Read,Glob,Grep,Edit(tests/acceptance/**),Write(tests/acceptance/**),Edit(tests/e2e/**),Write(tests/e2e/**),Bash(npx jest:*),Bash(npm run lint),Bash(git status),Bash(git diff:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*)"
+
+  develop:
+    name: Desarrollo - Implementación con TDD
+    needs: qa-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: claude/issue-${{ github.event.issue.number }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Claude Dev implementa la historia
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            ROL: DESARROLLO. Sigue la sección "Rol desarrollo" de CLAUDE.md.
+
+            Implementa la historia del Issue #${{ github.event.issue.number }} del repositorio ${{ github.repository }}.
+            Ya estás en la rama claude/issue-${{ github.event.issue.number }}. El proceso de QA dejó las pruebas de aceptación en tests/acceptance/ (y, si aplica, E2E en tests/e2e/): son la especificación y no puedes modificarlas. Si las E2E usan data-testid que no existen, agrégalos en app/public/index.html.
+
+            TÍTULO: ${{ github.event.issue.title }}
+
+            HISTORIA Y CRITERIOS DE ACEPTACIÓN:
+            ${{ github.event.issue.body }}
+
+            Pasos:
+            1. Lee las pruebas de aceptación y el código actual.
+            2. Rojo: escribe pruebas unitarias en tests/unit/ para la lógica nueva, confirma que fallan y haz el commit test(#${{ github.event.issue.number }}).
+            3. Verde: implementa en app/ hasta que pasen las unitarias y las de aceptación. Confirma npm run lint y npm run test:coverage. Commit feat(#${{ github.event.issue.number }}).
+            4. Refactor solo si aporta; commit refactor(#${{ github.event.issue.number }}).
+            5. git push
+            6. Crea el PR con gh pr create --base main siguiendo el formato de CLAUDE.md.
+            7. Comenta en el Issue #${{ github.event.issue.number }} con gh issue comment, indicando el enlace del PR.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 40
+            --allowedTools "Read,Glob,Grep,Edit(app/**),Write(app/**),Edit(tests/unit/**),Write(tests/unit/**),Bash(npm test),Bash(npm test:*),Bash(npm run lint),Bash(npm run test:coverage),Bash(npx jest:*),Bash(git status),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr create:*),Bash(gh issue comment:*)"

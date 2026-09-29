@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parqueadero Central</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --concreto: #eceef0;
+      --asfalto: #3b4046;
+      --asfalto-claro: #4a5057;
+      --pintura: #f4f4ef;
+      --placa: #f2c12e;
+      --tinta: #1c1f22;
+      --gris: #5f666d;
+      --error: #b3261e;
+      --ok: #1e6b3a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Barlow", system-ui, sans-serif;
+      background: var(--concreto);
+      color: var(--tinta);
+      line-height: 1.5;
+    }
+    header, main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
+    h1, h2 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; margin: 0; }
+    h1 { font-size: 2.4rem; line-height: 1.1; }
+    h2 { font-size: 1.4rem; margin-bottom: 12px; }
+    .cupos { display: flex; gap: 24px; font-size: 1rem; color: var(--gris); }
+    .cupos strong { display: block; font-family: "Barlow Condensed", sans-serif; font-size: 2rem; color: var(--tinta); line-height: 1; }
+    main { display: grid; grid-template-columns: 300px 1fr; gap: 32px; align-items: start; }
+    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+    .panel { display: flex; flex-direction: column; gap: 28px; }
+    form { display: flex; flex-direction: column; gap: 10px; }
+    label { font-weight: 600; font-size: 0.95rem; }
+    input, select {
+      font: inherit; padding: 10px 12px; border: 2px solid #c9cdd1; border-radius: 6px; background: #fff;
+    }
+    input { text-transform: uppercase; letter-spacing: 0.08em; }
+    input:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid var(--placa); outline-offset: 2px; }
+    button {
+      font: inherit; font-weight: 600; padding: 11px 14px; border: none; border-radius: 6px; cursor: pointer;
+      background: var(--asfalto); color: var(--pintura);
+    }
+    button:hover { background: var(--asfalto-claro); }
+    .mensaje { min-height: 1.5em; margin: 0; font-weight: 600; }
+    .mensaje.error { color: var(--error); }
+    .mensaje.ok { color: var(--ok); }
+    .recibo { background: #fff; border-left: 6px solid var(--placa); padding: 14px 16px; border-radius: 4px; }
+    .recibo dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+    .recibo dt { color: var(--gris); }
+    .recibo dd { margin: 0; font-weight: 600; }
+    .recibo .total { font-family: "Barlow Condensed", sans-serif; font-size: 1.8rem; }
+    .lote { background: var(--asfalto); border-radius: 10px; padding: 20px 20px 8px; color: var(--pintura); }
+    .zona { margin-bottom: 20px; }
+    .zona h2 { color: var(--pintura); font-size: 1.1rem; }
+    .fila { display: grid; gap: 0; border-top: 3px solid var(--pintura); }
+    .fila.carros { grid-template-columns: repeat(6, 1fr); }
+    .fila.motos { grid-template-columns: repeat(6, 1fr); max-width: 66%; }
+    @media (max-width: 560px) { .fila.carros, .fila.motos { grid-template-columns: repeat(3, 1fr); max-width: none; } }
+    .espacio {
+      position: relative; min-height: 110px; padding: 10px 6px 28px;
+      border-right: 3px solid var(--pintura); display: flex; align-items: center; justify-content: center;
+    }
+    .espacio:first-child { border-left: 3px solid var(--pintura); }
+    .motos .espacio { min-height: 84px; }
+    .codigo {
+      position: absolute; bottom: 6px; left: 0; right: 0; text-align: center;
+      font-family: "Barlow Condensed", sans-serif; font-weight: 700; font-size: 0.95rem; opacity: 0.55;
+    }
+    .placa {
+      background: var(--placa); color: var(--tinta); border: 2px solid var(--tinta); border-radius: 4px;
+      font-family: "Barlow Condensed", sans-serif; font-weight: 700; font-size: 1.15rem; letter-spacing: 0.06em;
+      padding: 2px 8px;
+    }
+    .libre-texto { font-size: 0.85rem; opacity: 0.45; }
+    .espacio.recien { animation: parpadeo 1.2s ease-out 1; }
+    @keyframes parpadeo { from { background: rgba(242, 193, 46, 0.35); } to { background: transparent; } }
+    @media (prefers-reduced-motion: reduce) { .espacio.recien { animation: none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Parqueadero Central</h1>
+    <div class="cupos" data-testid="resumen">
+      <div><strong data-testid="libres-carro">–</strong>cupos libres para carro</div>
+      <div><strong data-testid="libres-moto">–</strong>cupos libres para moto</div>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <form id="form-ingreso" data-testid="form-ingreso">
+        <h2>Registrar ingreso</h2>
+        <label for="placa-ingreso">Placa</label>
+        <input id="placa-ingreso" data-testid="placa-ingreso" placeholder="ABC123" autocomplete="off" required>
+        <label for="tipo-ingreso">Tipo de vehículo</label>
+        <select id="tipo-ingreso" data-testid="tipo-ingreso">
+          <option value="carro">Carro</option>
+          <option value="moto">Moto</option>
+        </select>
+        <button type="submit" data-testid="btn-ingreso">Registrar ingreso</button>
+        <p class="mensaje" id="msg-ingreso" data-testid="msg-ingreso" role="status"></p>
+      </form>
+
+      <form id="form-salida" data-testid="form-salida">
+        <h2>Registrar salida</h2>
+        <label for="placa-salida">Placa</label>
+        <input id="placa-salida" data-testid="placa-salida" placeholder="ABC123" autocomplete="off" required>
+        <button type="submit" data-testid="btn-salida">Registrar salida y cobrar</button>
+        <p class="mensaje" id="msg-salida" data-testid="msg-salida" role="status"></p>
+      </form>
+
+      <div id="recibo" class="recibo" data-testid="recibo" hidden></div>
+    </section>
+
+    <section class="lote" aria-label="Mapa del parqueadero">
+      <div class="zona">
+        <h2>Zona de carros</h2>
+        <div class="fila carros" id="zona-carro" data-testid="zona-carro"></div>
+      </div>
+      <div class="zona">
+        <h2>Zona de motos</h2>
+        <div class="fila motos" id="zona-moto" data-testid="zona-moto"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const pesos = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+    const hora = new Intl.DateTimeFormat('es-CO', { hour: '2-digit', minute: '2-digit' });
+
+    async function api(ruta, opciones = {}) {
+      const res = await fetch(ruta, { headers: { 'Content-Type': 'application/json' }, ...opciones });
+      const datos = await res.json();
+      if (!res.ok) throw new Error(datos.error || 'No se pudo completar la operación.');
+      return datos;
+    }
+
+    function mostrar(id, texto, tipo) {
+      const el = document.getElementById(id);
+      el.textContent = texto;
+      el.className = `mensaje ${tipo}`;
+    }
+
+    async function cargar(recien) {
+      const [espacios, res] = await Promise.all([api('/api/espacios'), api('/api/resumen')]);
+      document.querySelector('[data-testid="libres-carro"]').textContent = res.carro.libres;
+      document.querySelector('[data-testid="libres-moto"]').textContent = res.moto.libres;
+      for (const tipo of ['carro', 'moto']) {
+        const zona = document.getElementById(`zona-${tipo}`);
+        zona.innerHTML = '';
+        for (const e of espacios.filter((x) => x.tipo === tipo)) {
+          const div = document.createElement('div');
+          div.className = 'espacio' + (e.codigo === recien ? ' recien' : '');
+          div.dataset.testid = `espacio-${e.codigo}`;
+          div.dataset.estado = e.estado;
+          div.innerHTML = e.placa
+            ? `<span class="placa">${e.placa}</span>`
+            : '<span class="libre-texto">Libre</span>';
+          div.insertAdjacentHTML('beforeend', `<span class="codigo">${e.codigo}</span>`);
+          zona.appendChild(div);
+        }
+      }
+    }
+
+    document.getElementById('form-ingreso').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const placa = document.getElementById('placa-ingreso').value;
+      const tipo = document.getElementById('tipo-ingreso').value;
+      try {
+        const espacio = await api('/api/ingresos', { method: 'POST', body: JSON.stringify({ placa, tipo }) });
+        mostrar('msg-ingreso', `Ingreso registrado: ${espacio.placa} en ${espacio.codigo}.`, 'ok');
+        ev.target.reset();
+        await cargar(espacio.codigo);
+      } catch (err) {
+        mostrar('msg-ingreso', err.message, 'error');
+      }
+    });
+
+    document.getElementById('form-salida').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const placa = document.getElementById('placa-salida').value;
+      const recibo = document.getElementById('recibo');
+      try {
+        const r = await api('/api/salidas', { method: 'POST', body: JSON.stringify({ placa }) });
+        mostrar('msg-salida', `Salida registrada: ${r.placa} liberó ${r.espacio}.`, 'ok');
+        recibo.innerHTML = `
+          <dl>
+            <dt>Placa</dt><dd>${r.placa}</dd>
+            <dt>Espacio</dt><dd>${r.espacio}</dd>
+            <dt>Ingreso</dt><dd>${hora.format(new Date(r.ingreso))}</dd>
+            <dt>Salida</dt><dd>${hora.format(new Date(r.salida))}</dd>
+            <dt>Tiempo</dt><dd>${r.minutos} min (${r.horasCobradas} h cobradas)</dd>
+            <dt>Total</dt><dd class="total" data-testid="recibo-total">${pesos.format(r.valor)}</dd>
+          </dl>`;
+        recibo.hidden = false;
+        ev.target.reset();
+        await cargar();
+      } catch (err) {
+        mostrar('msg-salida', err.message, 'error');
+        recibo.hidden = true;
+      }
+    });
+
+    cargar().catch(() => mostrar('msg-ingreso', 'No se pudo conectar con el servidor.', 'error'));
+  </script>
+</body>
+</html>

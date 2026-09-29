@@ -1,0 +1,48 @@
+name: Crear proyecto
+
+# Autoservicio: crea un repositorio nuevo con el pipeline DevSecOps configurado
+# y, opcionalmente, envía una historia inicial para que la IA la desarrolle.
+on:
+  workflow_dispatch:
+    inputs:
+      nombre:
+        description: 'Nombre del proyecto (minúsculas, números y guiones)'
+        required: true
+        type: string
+      historia:
+        description: 'Historia inicial para desarrollar con IA'
+        required: true
+        type: choice
+        default: ninguna
+        options:
+          - ninguna
+          - mantenimiento
+          - motos-electricas
+
+concurrency:
+  group: crear-proyecto-${{ inputs.nombre }}
+  cancel-in-progress: false
+
+jobs:
+  crear:
+    name: Crear y configurar el proyecto
+    # Solo corre en la plantilla; los repos creados no tienen el token de plataforma.
+    if: github.repository == 'JCG097/ai-sdlc-quality-pipeline-demo'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.PLATFORM_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      PLANTILLA: ${{ github.repository }}
+      NOMBRE: ${{ inputs.nombre }}
+      HISTORIA: ${{ inputs.historia }}
+      SONAR_ORG: jcg097
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CHAT_WEBHOOK_URL: ${{ secrets.CHAT_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Crear y configurar el proyecto
+        run: bash scripts/crear-proyecto.sh

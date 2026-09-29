@@ -1,0 +1,45 @@
+name: Notificaciones
+
+# Envía al canal del equipo el resultado de cada ejecución del Quality Pipeline.
+on:
+  workflow_run:
+    workflows: ["Quality Pipeline"]
+    types: [completed]
+
+jobs:
+  notify:
+    if: github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHAT_WEBHOOK_URL: ${{ secrets.CHAT_WEBHOOK_URL }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      TITLE: ${{ github.event.workflow_run.display_title }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Enviar notificación a Google Chat
+        run: |
+          if [ -z "$CHAT_WEBHOOK_URL" ]; then
+            echo "No hay webhook de chat configurado; se omite la notificación."
+            exit 0
+          fi
+
+          if [ "$CONCLUSION" = "success" ]; then
+            IMAGE="ghcr.io/${REPO,,}:${SHA}"
+            TEXT=$(printf '✅ *Pipeline aprobado*: %s\nRama: `%s`\nTodos los quality gates pasaron y la versión fue validada en DEV y QA.\nImagen: %s\n<%s|Ver ejecución>' \
+              "$TITLE" "$BRANCH" "$IMAGE" "$RUN_URL")
+          else
+            FALLIDOS=$(gh run view "$RUN_ID" --repo "$REPO" --json jobs \
+              --jq '[.jobs[] | select(.conclusion=="failure") | .name] | join(", ")')
+            TEXT=$(printf '❌ *Quality gate fallido*: %s\nRama: `%s`\nGates fallidos: %s\n<%s|Ver ejecución>' \
+              "$TITLE" "$BRANCH" "$FALLIDOS" "$RUN_URL")
+          fi
+
+          jq -n --arg text "$TEXT" '{text: $text}' \
+            | curl -fsS -X POST -H 'Content-Type: application/json; charset=UTF-8' --data @- "$CHAT_WEBHOOK_URL"

@@ -1,0 +1,10 @@
+node_modules
+coverage
+tests
+scripts
+playwright-report
+test-results
+.git
+.github
+.vscode
+*.md

@@ -1,0 +1,13 @@
+# Configuración de Gitleaks: reglas por defecto más excepciones revisadas y justificadas.
+title = "Gitleaks - Parqueadero Central"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Excepciones revisadas: identificadores públicos que no son secretos"
+regexTarget = "line"
+regexes = [
+  # La clave de proyecto de SonarQube es un identificador público, no una credencial.
+  '''^sonar\.projectKey=[A-Za-z0-9_.:-]+$''',
+]
